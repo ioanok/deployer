@@ -8,9 +8,11 @@
 
 ```php
 after('deploy:update_code', 'npm:install');
+after('npm:install', 'npm:build');
 ```
 
  */
+
 namespace Deployer;
 
 set('bin/npm', function () {
@@ -24,5 +26,10 @@ set('bin/npm', function () {
 // install of your dependencies.
 desc('Installs npm packages');
 task('npm:install', function () {
-    run("cd {{release_path}} && {{bin/npm}} ci");
+    run('cd {{release_path}} && {{bin/npm}} ci');
+});
+
+desc('Runs npm build');
+task('npm:build', function () {
+    run('cd {{release_path}} && {{bin/npm}} run build');
 });

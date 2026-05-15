@@ -7,23 +7,40 @@
 
 namespace Deployer\Task;
 
+use Deployer\Deployer;
 use Deployer\Host\Host;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Input\Input;
+use Symfony\Component\Console\Output\Output;
+
 use function Deployer\invoke;
 use function Deployer\task;
 
+interface MockableCallback
+{
+    public function callback(): void;
+}
+
 class TaskTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        $console = new Application();
+        $deployer = new Deployer($console);
+        $deployer['input'] = $this->createStub(Input::class);
+        $deployer['output'] = $this->createStub(Output::class);
+    }
+
     protected function tearDown(): void
     {
         StubTask::$runned = 0;
+        Deployer::resetInstance();
     }
 
     public function testTask()
     {
-        $mock = self::getMockBuilder('stdClass')
-            ->setMethods(['callback'])
-            ->getMock();
+        $mock = $this->createMock(MockableCallback::class);
         $mock
             ->expects(self::exactly(1))
             ->method('callback');
@@ -32,9 +49,7 @@ class TaskTest extends TestCase
             $mock->callback();
         });
 
-        $context = self::getMockBuilder(Context::class)
-            ->disableOriginalConstructor()
-            ->getMock();
+        $context = $this->createStub(Context::class);
         $task->run($context);
 
         self::assertEquals('task_name', $task->getName());
@@ -54,12 +69,10 @@ class TaskTest extends TestCase
 
     public function testInit()
     {
-        $context = self::getMockBuilder(Context::class)->disableOriginalConstructor()->getMock();
+        $context = $this->createStub(Context::class);
 
         // Test create task with [$object, 'method']
-        $mock1 = self::getMockBuilder('stdClass')
-            ->setMethods(['callback'])
-            ->getMock();
+        $mock1 = $this->createMock(MockableCallback::class);
         $mock1
             ->expects(self::once())
             ->method('callback');
@@ -67,9 +80,7 @@ class TaskTest extends TestCase
         $task1->run($context);
 
         // Test create task with anonymous functions
-        $mock2 = self::getMockBuilder('stdClass')
-            ->setMethods(['callback'])
-            ->getMock();
+        $mock2 = $this->createMock(MockableCallback::class);
         $mock2
             ->expects(self::once())
             ->method('callback');

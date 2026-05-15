@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -20,8 +22,8 @@ class FileHandler implements HandlerInterface
         $this->filePath = $filePath;
     }
 
-    public function log(string $message): void
+    public function writeln(string $message): void
     {
-        file_put_contents($this->filePath, $message, FILE_APPEND);
+        file_put_contents($this->filePath, $message . "\n", FILE_APPEND);
     }
 }

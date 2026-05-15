@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -8,17 +10,19 @@
 
 namespace Deployer\Command;
 
-use Deployer\Component\Ssh\Client;
 use Deployer\Deployer;
 use Deployer\Host\Localhost;
 use Deployer\Task\Context;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
 use Symfony\Component\Console\Completion\CompletionSuggestions;
+use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
+
+use function Deployer\quote;
 
 /**
  * @codeCoverageIgnore
@@ -39,12 +43,12 @@ class SshCommand extends Command
         $this->deployer = $deployer;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this->addArgument(
             'hostname',
             InputArgument::OPTIONAL,
-            'Hostname'
+            'Hostname',
         );
     }
 
@@ -71,10 +75,11 @@ class SshCommand extends Command
             if (count($hostsAliases) === 1) {
                 $host = $this->deployer->hosts->get($hostsAliases[0]);
             } else {
+                /** @var QuestionHelper $helper */
                 $helper = $this->getHelper('question');
                 $question = new ChoiceQuestion(
                     '<question>Select host:</question>',
-                    $hostsAliases
+                    $hostsAliases,
                 );
                 $question->setErrorMessage('There is no "%s" host.');
 
@@ -90,13 +95,15 @@ class SshCommand extends Command
 
         Context::push(new Context($host));
         $host->setSshMultiplexing(false);
-        $options = $host->connectionOptionsString();
+        $connOptions = implode(' ', array_map(function ($option) {
+            return quote($option);
+        }, $host->connectionOptions()));
         $deployPath = $host->get('deploy_path', '~');
 
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            passthru("ssh -t $options {$host->connectionString()} \"cd $deployPath/current 2>/dev/null || cd $deployPath; $shell_path\"");
+            passthru("ssh -t $connOptions {$host->connectionString()} \"cd $deployPath/current 2>/dev/null || cd $deployPath; $shell_path\"");
         } else {
-            passthru("ssh -t $options {$host->connectionString()} 'cd $deployPath/current 2>/dev/null || cd $deployPath; $shell_path'");
+            passthru("ssh -t $connOptions {$host->connectionString()} 'cd $deployPath/current 2>/dev/null || cd $deployPath; $shell_path'");
         }
         return 0;
     }

@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -10,11 +12,9 @@ namespace Deployer\Command;
 
 use Deployer\Deployer;
 use Deployer\Executor\Worker;
-use Deployer\Host\Localhost;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption as Option;
 use Symfony\Component\Console\Output\OutputInterface;
-use function Deployer\localhost;
 
 class WorkerCommand extends MainCommand
 {
@@ -24,7 +24,7 @@ class WorkerCommand extends MainCommand
         $this->setHidden(true);
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         parent::configure();
         $this->addOption('task', null, Option::VALUE_REQUIRED);
@@ -42,7 +42,9 @@ class WorkerCommand extends MainCommand
         if (!$output->isDecorated() && !defined('NO_ANSI')) {
             define('NO_ANSI', 'true');
         }
-        $this->deployer->config->set('master_url', 'http://localhost:' . $input->getOption('port'));
+
+        define('MASTER_ENDPOINT', 'http://localhost:' . $input->getOption('port'));
+        define('MASTER_TOKEN', getenv('DEPLOYER_MASTER_TOKEN') ?: '');
 
         $task = $this->deployer->tasks->get($input->getOption('task'));
         $host = $this->deployer->hosts->get($input->getOption('host'));

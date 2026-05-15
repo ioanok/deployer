@@ -6,16 +6,6 @@ parameters:
 			path: ../src/Command/BlackjackCommand.php
 
 		-
-			message: "#^Else branch is unreachable because previous condition is always true\\.$#"
-			count: 1
-			path: ../src/Command/BlackjackCommand.php
-
-		-
-			message: "#^If condition is always true\\.$#"
-			count: 1
-			path: ../src/Command/BlackjackCommand.php
-
-		-
 			message: "#^If condition is always false\\.$#"
 			count: 1
 			path: ../src/Command/BlackjackCommand.php
@@ -26,27 +16,6 @@ parameters:
 			path: ../src/Command/BlackjackCommand.php
 
 		-
-			message: "#^Unsafe usage of new static\\(\\)\\.$#"
-			count: 2
-			path: ../src/Component/PharUpdate/Exception/Exception.php
-
-		-
-			message: "#^Unsafe usage of new static\\(\\)\\.$#"
-			count: 1
-			path: ../src/Component/PharUpdate/Manifest.php
-
-		-
-			message: "#^If condition is always true\\.$#"
-			count: 1
-			path: ../src/Host/Host.php
-
-		-
 			message: "#^Unreachable statement \\- code above always terminates\\.$#"
 			count: 1
-			path: ../src/Importer/Importer.php
-
-		-
-			message: "#^Unreachable statement \\- code above always terminates\\.$#"
-			count: 1
-			path: ../src/functions.php
-
+			path: ../src/Import/YamlRecipe.php

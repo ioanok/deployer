@@ -29,10 +29,10 @@ after('deploy:success', 'grafana:annotation');
 ```
 
 */
+
 namespace Deployer;
 
 use Deployer\Utility\Httpie;
-
 
 desc('Creates Grafana annotation of deployment');
 task('grafana:annotation', function () {
@@ -45,7 +45,7 @@ task('grafana:annotation', function () {
     ];
 
     $config = array_merge($defaultConfig, (array) get('grafana'));
-    if (!is_array($config) || !isset($config['url']) || !isset($config['token'])) {
+    if (!isset($config['url']) || !isset($config['token'])) {
         throw new \RuntimeException("Please configure Grafana: set('grafana', ['url' => 'https://localhost/api/annotations', token' => 'eyJrIjo...']);");
     }
 
@@ -61,7 +61,6 @@ task('grafana:annotation', function () {
 
     Httpie::post($config['url'])
         ->header('Authorization', 'Bearer ' . $config['token'])
-        ->header('Content-type', 'application/json')
         ->jsonBody($params)
         ->send();
 });

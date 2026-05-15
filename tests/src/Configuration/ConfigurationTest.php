@@ -2,6 +2,7 @@
 
 namespace Deployer\Configuration;
 
+use Deployer\Configuration;
 use Deployer\Exception\ConfigurationException;
 use PHPUnit\Framework\TestCase;
 
@@ -156,6 +157,42 @@ class ConfigurationTest extends TestCase
         $alpha->add('files', ['c']);
 
         self::assertEquals(['a', 'b', 'c'], $alpha->get('files'));
+    }
+
+    public function testParseEscapedBraces()
+    {
+        $config = new Configuration();
+        $config->set('foo', 'a');
+
+        self::assertEquals('{{foo}}', $config->parse('\{{foo}}'));
+        self::assertEquals('a {{bar}}', $config->parse('{{foo}} \{{bar}}'));
+        self::assertEquals('{{foo}} {{bar}}', $config->parse('\{{foo}} \{{bar}}'));
+    }
+
+    public function testParseQuoteFilter()
+    {
+        $config = new Configuration();
+        $config->set('name', "it's a test");
+
+        self::assertEquals("\$'it\\'s a test'", $config->parse('{{ name | quote }}'));
+    }
+
+    public function testParseQuoteFilterSafeValue()
+    {
+        $config = new Configuration();
+        $config->set('path', '/usr/local/bin');
+
+        self::assertEquals('/usr/local/bin', $config->parse('{{ path | quote }}'));
+    }
+
+    public function testParseUnknownFilter()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown filter: upper');
+
+        $config = new Configuration();
+        $config->set('name', 'test');
+        $config->parse('{{ name | upper }}');
     }
 
     public function testPersist()

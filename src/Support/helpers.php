@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -8,13 +10,9 @@
 
 namespace Deployer\Support;
 
-/**
- * Flatten array
- *
- * @param array $array
- * @return array
- */
-function array_flatten(array $array)
+use function Deployer\quote;
+
+function array_flatten(array $array): array
 {
     $flatten = [];
     array_walk_recursive($array, function ($value) use (&$flatten) {
@@ -29,13 +27,8 @@ function array_flatten(array $array)
  * 1. scalar values are overridden
  * 2. array values are extended uniquely if all keys are numeric
  * 3. all other array values are merged
- *
- * @param array $original
- * @param array $override
- * @return array
- * @see http://stackoverflow.com/a/36366886/6812729
  */
-function array_merge_alternate(array $original, array $override)
+function array_merge_alternate(array $original, array $override): array
 {
     foreach ($override as $key => $value) {
         if (isset($original[$key])) {
@@ -63,42 +56,28 @@ function array_merge_alternate(array $original, array $override)
     return $original;
 }
 
-/**
- * Determines if the given string contains the given value.
- */
-function str_contains(string $haystack, string $needle): bool
-{
-    return strpos($haystack, $needle) !== false;
-}
-
-/**
- * Checks if string stars with given prefix.
- */
-function starts_with(string $string, string $startString): bool
-{
-    $len = strlen($startString);
-    return (substr($string, 0, $len) === $startString);
-}
-
-/**
- * This function used for create environment string.
- */
 function env_stringify(array $array): string
 {
     return implode(' ', array_map(
         function ($key, $value) {
-            return sprintf("%s=%s", $key, escapeshellarg((string)$value));
+            return sprintf("%s=%s", $key, quote((string) $value));
         },
         array_keys($array),
-        $array
+        $array,
     ));
 }
 
-/**
- * Check if var is closure.
- * @param mixed $var
- */
-function is_closure($var): bool
+function replace_secrets(string $command, ?array $secrets): string
+{
+    if (!empty($secrets)) {
+        foreach ($secrets as $key => $value) {
+            $command = str_replace('%' . $key . '%', strval($value), $command);
+        }
+    }
+    return $command;
+}
+
+function is_closure(mixed $var): bool
 {
     return is_object($var) && ($var instanceof \Closure);
 }
@@ -129,7 +108,7 @@ function normalize_line_endings(string $string): string
  */
 function parse_home_dir(string $path): string
 {
-    if ('~' === $path || 0 === strpos($path, '~/')) {
+    if ('~' === $path || str_starts_with($path, '~/')) {
         if (isset($_SERVER['HOME'])) {
             $home = $_SERVER['HOME'];
         } elseif (isset($_SERVER['HOMEDRIVE'], $_SERVER['HOMEPATH'])) {
@@ -142,28 +121,6 @@ function parse_home_dir(string $path): string
     }
 
     return $path;
-}
-
-function find_line_number(string $source, string $string): int
-{
-    $string = explode(PHP_EOL, $string)[0];
-    $before = strstr($source, $string, true);
-    if (false !== $before) {
-        return count(explode(PHP_EOL, $before));
-    }
-    return 1;
-}
-
-function find_config_line(string $source, string $name): \Generator
-{
-    foreach (explode(PHP_EOL, $source) as $n => $line) {
-        if (preg_match("/\(['\"]{$name}['\"]/", $line)) {
-            yield [$n + 1, $line];
-        }
-        if (preg_match("/\s{$name}:/", $line)) {
-            yield [$n + 1, $line];
-        }
-    }
 }
 
 function colorize_host(string $alias): string
@@ -253,7 +210,86 @@ function colorize_host(string $alias): string
     return "<$tag>$alias</>";
 }
 
-function escape_shell_argument(string $argument): string
+function human_duration(int $millis): string
 {
-    return "'".str_replace("'", "'\\''", $argument)."'";
+    if ($millis < 0) {
+        $millis = 0;
+    }
+    if ($millis < 1000) {
+        return "{$millis}ms";
+    }
+    $seconds = intdiv($millis, 1000);
+    $ms = $millis - $seconds * 1000;
+    if ($seconds < 60) {
+        return "{$seconds}s {$ms}ms";
+    }
+    $minutes = intdiv($seconds, 60);
+    $seconds = $seconds - $minutes * 60;
+    if ($minutes < 60) {
+        return "{$minutes}m {$seconds}s";
+    }
+    $hours = intdiv($minutes, 60);
+    $minutes = $minutes - $hours * 60;
+    return "{$hours}h {$minutes}m";
+}
+
+function ci_name(): ?string
+{
+    if (getenv('GITHUB_WORKFLOW')) {
+        return 'github';
+    }
+    if (getenv('GITLAB_CI')) {
+        return 'gitlab';
+    }
+    return null;
+}
+
+function deployer_root(): string
+{
+    if (getenv('DEPLOYER_ROOT') !== false) {
+        return getenv('DEPLOYER_ROOT');
+    } else {
+        if (defined('DEPLOYER_DEPLOY_FILE')) {
+            return dirname(DEPLOYER_DEPLOY_FILE);
+        } else {
+            return getcwd();
+        }
+    }
+}
+
+/**
+ * Constructs an rsync-compatible remote shell command string using SSH and the provided options.
+ *
+ * @see https://github.com/RsyncProject/rsync/blob/4f6e4ea64ac3e2ac50f48103a22601f4a40ee8be/rsync.1.md?plain=1#L2152-L2162
+ *
+ *     Command-line arguments are permitted in COMMAND provided that COMMAND is
+ *     presented to rsync as a single argument.  You must use spaces (not tabs or
+ *     other whitespace) to separate the command and args from each other, and you
+ *     can use single- and/or double-quotes to preserve spaces in an argument (but
+ *     not backslashes).  Note that doubling a single-quote inside a single-quoted
+ *     string gives you a single-quote; likewise for double-quotes (though you
+ *     need to pay attention to which quotes your shell is parsing and which
+ *     quotes rsync is parsing).  Some examples:
+ *
+ *     -e 'ssh -p 2234'
+ *     -e 'ssh -o "ProxyCommand nohup ssh firewall nc -w1 %h %p"'
+ *
+ */
+function rsync_rsh(array $args): string
+{
+    $parts = ['ssh'];
+    foreach ($args as $option) {
+        if (is_integer($option)) {
+            $option = (string) $option;
+        }
+        if (str_contains($option, "\0")) {
+            throw new \InvalidArgumentException('rsync_rsh: NUL byte not allowed in ssh option');
+        }
+        if (preg_match('/^[a-zA-Z0-9_\-=]+$/', $option)) {
+            $parts[] = $option;
+        } else {
+            $parts[] = "'" . str_replace("'", "''", $option) . "'";
+        }
+    }
+    return implode(' ', $parts);
 }

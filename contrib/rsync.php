@@ -110,11 +110,13 @@ host('hostname')
     And Your `rsync_dest` is set to `{{release_path}}` then You could add this task to run before `rsync` task or after `deploy:release`, whatever is more convenient.
 
  */
+
 namespace Deployer;
 
-use Deployer\Component\Ssh\Client;
 use Deployer\Host\Localhost;
 use Deployer\Task\Context;
+
+use function Deployer\Support\rsync_rsh;
 
 set('rsync', [
     'exclude' => [
@@ -141,10 +143,10 @@ set('rsync_excludes', function () {
     $excludeFile = $config['exclude-file'];
     $excludesRsync = '';
     foreach ($excludes as $exclude) {
-        $excludesRsync.=' --exclude=' . escapeshellarg($exclude);
+        $excludesRsync .= ' --exclude=' . quote($exclude);
     }
     if (!empty($excludeFile) && file_exists($excludeFile) && is_file($excludeFile) && is_readable($excludeFile)) {
-        $excludesRsync .= ' --exclude-from=' . escapeshellarg($excludeFile);
+        $excludesRsync .= ' --exclude-from=' . quote($excludeFile);
     }
 
     return $excludesRsync;
@@ -156,10 +158,10 @@ set('rsync_includes', function () {
     $includeFile = $config['include-file'];
     $includesRsync = '';
     foreach ($includes as $include) {
-        $includesRsync.=' --include=' . escapeshellarg($include);
+        $includesRsync .= ' --include=' . quote($include);
     }
     if (!empty($includeFile) && file_exists($includeFile) && is_file($includeFile) && is_readable($includeFile)) {
-        $includesRsync .= ' --include-from=' . escapeshellarg($includeFile);
+        $includesRsync .= ' --include-from=' . quote($includeFile);
     }
 
     return $includesRsync;
@@ -172,7 +174,7 @@ set('rsync_filter', function () {
     $filterPerDir = $config['filter-perdir'];
     $filtersRsync = '';
     foreach ($filters as $filter) {
-        $filtersRsync.=" --filter='$filter'";
+        $filtersRsync .= " --filter='$filter'";
     }
     if (!empty($filterFile)) {
         $filtersRsync .= " --filter='merge $filterFile'";
@@ -195,7 +197,7 @@ set('rsync_options', function () {
 
 
 desc('Warmups remote Rsync target');
-task('rsync:warmup', function() {
+task('rsync:warmup', function () {
     $config = get('rsync');
 
     $source = "{{current_path}}";
@@ -210,7 +212,7 @@ task('rsync:warmup', function() {
 
 
 desc('Rsync local->remote');
-task('rsync', function() {
+task('rsync', function () {
     $config = get('rsync');
 
     $src = get('rsync_src');
@@ -237,12 +239,14 @@ task('rsync', function() {
         throw new \RuntimeException('You need to specify a destination path.');
     }
 
+    $rsyncFlags = (is_string($config['flags']) && trim($config['flags']) !== '') ? "-{$config['flags']}" : '';
+
     $host = Context::get()->getHost();
     if ($host instanceof Localhost) {
-        runLocally("rsync -{$config['flags']} {{rsync_options}}{{rsync_includes}}{{rsync_excludes}}{{rsync_filter}} '$src/' '$dst/'", $config);
+        runLocally("rsync {$rsyncFlags} {{rsync_options}}{{rsync_includes}}{{rsync_excludes}}{{rsync_filter}} '$src/' '$dst/'", timeout: $config['timeout']);
         return;
     }
 
-    $sshArguments = $host->connectionOptionsString();
-    runLocally("rsync -{$config['flags']} -e 'ssh $sshArguments' {{rsync_options}}{{rsync_includes}}{{rsync_excludes}}{{rsync_filter}} '$src/' '{$host->connectionString()}:$dst/'", $config);
+    $rsh = quote(rsync_rsh($host->connectionOptions()));
+    runLocally("rsync {$rsyncFlags} -e $rsh {{rsync_options}}{{rsync_includes}}{{rsync_excludes}}{{rsync_filter}} '$src/' '{$host->connectionString()}:$dst/'", timeout: $config['timeout']);
 });

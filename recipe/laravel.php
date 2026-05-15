@@ -1,4 +1,5 @@
 <?php
+
 namespace Deployer;
 
 require_once __DIR__ . '/common.php';
@@ -10,21 +11,16 @@ set('shared_files', ['.env']);
 set('writable_dirs', [
     'bootstrap/cache',
     'storage',
-    'storage/app',
-    'storage/app/public',
-    'storage/framework',
-    'storage/framework/cache',
-    'storage/framework/cache/data',
-    'storage/framework/sessions',
-    'storage/framework/views',
-    'storage/logs',
 ]);
+set('writable_recursive', true);
 set('log_files', 'storage/logs/*.log');
+set('bin/artisan', '{{release_or_current_path}}/artisan');
 set('laravel_version', function () {
-    $result = run('{{bin/php}} {{release_or_current_path}}/artisan --version');
+    $result = run("{{bin/php}} {{bin/artisan}} --version");
     preg_match_all('/(\d+\.?)+/', $result, $matches);
     return $matches[0][0] ?? 5.5;
 });
+set('public_path', 'public');
 
 /**
  * Run an artisan command.
@@ -55,20 +51,21 @@ function artisan($command, $options = [])
             return;
         }
 
+        // Get the dotenv path or use default.
+        $dotenv = get('dotenv', '{{release_or_current_path}}/.env');
+
         // Ensure we warn or fail when a command relies on the ".env" file.
-        if (in_array('failIfNoEnv', $options) && !test('[ -s {{release_or_current_path}}/.env ]')) {
+        if (in_array('failIfNoEnv', $options) && !test("[ -s $dotenv ]")) {
             throw new \Exception('Your .env file is empty! Cannot proceed.');
         }
 
-        if (in_array('skipIfNoEnv', $options) && !test('[ -s {{release_or_current_path}}/.env ]')) {
+        if (in_array('skipIfNoEnv', $options) && !test("[ -s $dotenv ]")) {
             warning("Your .env file is empty! Skipping...</>");
             return;
         }
 
-        $artisan = '{{release_or_current_path}}/artisan';
-
         // Run the artisan command.
-        $output = run("{{bin/php}} $artisan $command");
+        $output = run("{{bin/php}} {{bin/artisan}} $command");
 
         // Output the results when appropriate.
         if (in_array('showOutput', $options)) {
@@ -149,6 +146,9 @@ task('artisan:optimize', artisan('optimize'));
 desc('Removes the cached bootstrap files');
 task('artisan:optimize:clear', artisan('optimize:clear'));
 
+desc('Reload running services');
+task('artisan:reload', artisan('reload', ['min' => '12.41']));
+
 desc('Creates a route cache file for faster route registration');
 task('artisan:route:cache', artisan('route:cache'));
 
@@ -207,6 +207,22 @@ task('artisan:horizon:terminate', artisan('horizon:terminate'));
 desc('Publish all of the Horizon resources');
 task('artisan:horizon:publish', artisan('horizon:publish'));
 
+desc('Lists all of the supervisors');
+task('artisan:horizon:supervisors', artisan('horizon:supervisors', ['showOutput']));
+
+desc('Deletes metrics for all jobs and queues');
+task('artisan:horizon:clear-metrics', artisan('horizon:clear-metrics'));
+
+desc('Stores a snapshot of the queue metrics');
+task('artisan:horizon:snapshot', artisan('horizon:snapshot'));
+
+/*
+ * Scheduler.
+ */
+
+desc('Interrupt in-progress schedule:run invocations');
+task('artisan:schedule:interrupt', artisan('schedule:interrupt'));
+
 /*
  * Telescope.
  */
@@ -240,6 +256,32 @@ task('artisan:octane:status', artisan('octane:status'));
 desc('Publish all of the Laravel Nova resources');
 task('artisan:nova:publish', artisan('nova:publish'));
 
+/*
+ * Reverb.
+ */
+
+desc('Starts the Reverb server');
+task('artisan:reverb:start', artisan('reverb:start'));
+
+desc('Restarts the Reverb server');
+task('artisan:reverb:restart', artisan('reverb:restart'));
+
+/*
+ * Pulse.
+ */
+
+desc('Starts the Pulse server');
+task('artisan:pulse:check', artisan('pulse:check'));
+
+desc('Restarts the Pulse server');
+task('artisan:pulse:restart', artisan('pulse:restart'));
+
+desc('Purges all Pulse data from storage');
+task('artisan:pulse:purge', artisan('pulse:purge'));
+
+desc('Process incoming Pulse data from the ingest stream');
+task('artisan:pulse:work', artisan('pulse:work'));
+
 /**
  * Main deploy task.
  */
@@ -248,10 +290,8 @@ task('deploy', [
     'deploy:prepare',
     'deploy:vendors',
     'artisan:storage:link',
-    'artisan:config:cache',
-    'artisan:route:cache',
-    'artisan:view:cache',
-    'artisan:event:cache',
+    'artisan:optimize',
     'artisan:migrate',
     'deploy:publish',
+    'artisan:reload',
 ]);

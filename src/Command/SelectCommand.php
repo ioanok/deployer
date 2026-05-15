@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -35,7 +37,7 @@ abstract class SelectCommand extends Command
         parent::__construct($name);
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this->addArgument('selector', InputArgument::OPTIONAL | InputArgument::IS_ARRAY, 'Host selector');
     }
@@ -50,14 +52,15 @@ abstract class SelectCommand extends Command
             define('NO_ANSI', 'true');
         }
         $selector = $input->getArgument('selector');
+        $selector = empty($selector) ? Deployer::get()->config->get('default_selector', '') : $selector;
         $selectExpression = is_array($selector) ? implode(',', $selector) : $selector;
 
         if (empty($selectExpression)) {
             if (count($this->deployer->hosts) === 0) {
                 throw new ConfigurationException("No host configured.\nSpecify at least one host: `localhost();`.");
-            } else if (count($this->deployer->hosts) === 1) {
+            } elseif (count($this->deployer->hosts) === 1) {
                 $hosts = $this->deployer->hosts->all();
-            } else if ($input->isInteractive()) {
+            } elseif ($input->isInteractive()) {
                 $hostsAliases = [];
                 foreach ($this->deployer->hosts as $host) {
                     $hostsAliases[] = $host->getAlias();
@@ -66,7 +69,7 @@ abstract class SelectCommand extends Command
                 $helper = $this->getHelper('question');
                 $question = new ChoiceQuestion(
                     '<question>Select hosts:</question> (comma separated)',
-                    $hostsAliases
+                    $hostsAliases,
                 );
                 $question->setMultiselect(true);
                 $question->setErrorMessage('There is no "%s" host.');

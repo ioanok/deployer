@@ -1,12 +1,23 @@
 <?php
+
 namespace Deployer;
 
 set('php_version', function () {
-    return ask(' What PHP version to install? ', '8.2', ['5.6', '7.4', '8.0', '8.1', '8.2']);
+    $defaultPhpVersion = file_exists('composer.json')
+        ? explode('|', preg_replace('/[^0-9.|]+/', '', json_decode(file_get_contents('composer.json'), true)['require']['php'] ?? '8.4'))[0]
+        : '8.4';
+
+    if (count(($parts = explode('.', $defaultPhpVersion))) > 2) {
+        $defaultPhpVersion = "$parts[0].$parts[1]";
+    }
+
+    return ask(' What PHP version to install? ', $defaultPhpVersion, ['5.6', '7.4', '8.2', '8.3', '8.4', '8.5']);
 });
 
 desc('Installs PHP packages');
 task('provision:php', function () {
+    set('remote_user', get('provision_user'));
+
     $version = get('php_version');
     info("Installing PHP $version");
     $packages = [
@@ -27,14 +38,14 @@ task('provision:php', function () {
         "php$version-xml",
         "php$version-zip",
     ];
-    run('apt-get install -y ' . implode(' ', $packages), ['env' => ['DEBIAN_FRONTEND' => 'noninteractive']]);
+    run('apt-get install -y ' . implode(' ', $packages), env: ['DEBIAN_FRONTEND' => 'noninteractive']);
 
     // Configure PHP-CLI
-    run("sudo sed -i 's/error_reporting = .*/error_reporting = E_ALL/' /etc/php/$version/cli/php.ini");
-    run("sudo sed -i 's/display_errors = .*/display_errors = On/' /etc/php/$version/cli/php.ini");
-    run("sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' /etc/php/$version/cli/php.ini");
-    run("sudo sed -i 's/upload_max_filesize = .*/upload_max_filesize = 128M/' /etc/php/$version/cli/php.ini");
-    run("sudo sed -i 's/;date.timezone.*/date.timezone = UTC/' /etc/php/$version/cli/php.ini");
+    run("sed -i 's/error_reporting = .*/error_reporting = E_ALL/' /etc/php/$version/cli/php.ini");
+    run("sed -i 's/display_errors = .*/display_errors = On/' /etc/php/$version/cli/php.ini");
+    run("sed -i 's/memory_limit = .*/memory_limit = 512M/' /etc/php/$version/cli/php.ini");
+    run("sed -i 's/upload_max_filesize = .*/upload_max_filesize = 128M/' /etc/php/$version/cli/php.ini");
+    run("sed -i 's/;date.timezone.*/date.timezone = UTC/' /etc/php/$version/cli/php.ini");
 
     // Configure PHP-FPM
     run("sed -i 's/error_reporting = .*/error_reporting = E_ALL/' /etc/php/$version/fpm/php.ini");
@@ -60,7 +71,11 @@ task('provision:php', function () {
 
 desc('Shows php-fpm logs');
 task('logs:php-fpm', function () {
-    run('tail -f /var/log/fpm-php.www.log');
+    $fpmLogs = run("ls -1 /var/log | grep fpm");
+    if (empty($fpmLogs)) {
+        throw new \RuntimeException('No PHP-FPM logs found.');
+    }
+    run("sudo tail -f /var/log/$fpmLogs");
 })->verbose();
 
 desc('Installs Composer');
@@ -68,4 +83,3 @@ task('provision:composer', function () {
     run('curl -sS https://getcomposer.org/installer | php');
     run('mv composer.phar /usr/local/bin/composer');
 })->oncePerNode();
-

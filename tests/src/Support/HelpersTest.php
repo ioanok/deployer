@@ -38,7 +38,7 @@ class HelpersTest extends TestCase
         ]);
 
         $config = array_merge_alternate($config, [
-            'extra'
+            'extra',
         ]);
 
         self::assertEquals([
@@ -60,8 +60,43 @@ class HelpersTest extends TestCase
         $this->assertStringEndsWith('~', parse_home_dir('path~'));
     }
 
-    public function testEscapeShellArgument()
+    public function testRsyncRsh()
     {
-        $this->assertEquals('\'{"foobar":"Lorem ipsum\'\\\'\'s dolor"}\'', escape_shell_argument(json_encode(['foobar' => 'Lorem ipsum\'s dolor'])));
+        $this->assertEquals("ssh -p 22", rsync_rsh(['-p', 22]));
+        $this->assertEquals("ssh 'argument with spaces'", rsync_rsh(['argument with spaces']));
+        $this->assertEquals("ssh 'argument with '' quote'", rsync_rsh(['argument with \' quote']));
+    }
+
+    public function testHumanDurationMillis()
+    {
+        $this->assertEquals('0ms', human_duration(0));
+        $this->assertEquals('1ms', human_duration(1));
+        $this->assertEquals('999ms', human_duration(999));
+    }
+
+    public function testHumanDurationSeconds()
+    {
+        $this->assertEquals('1s 0ms', human_duration(1000));
+        $this->assertEquals('1s 234ms', human_duration(1234));
+        $this->assertEquals('59s 999ms', human_duration(59999));
+    }
+
+    public function testHumanDurationMinutes()
+    {
+        $this->assertEquals('1m 0s', human_duration(60000));
+        $this->assertEquals('1m 30s', human_duration(90000));
+        $this->assertEquals('59m 59s', human_duration(3599999));
+    }
+
+    public function testHumanDurationHours()
+    {
+        $this->assertEquals('1h 0m', human_duration(3600000));
+        $this->assertEquals('2h 30m', human_duration(2 * 3600000 + 30 * 60000));
+        $this->assertEquals('25h 0m', human_duration(25 * 3600000));
+    }
+
+    public function testHumanDurationNegative()
+    {
+        $this->assertEquals('0ms', human_duration(-100));
     }
 }

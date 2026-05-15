@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -8,50 +10,160 @@
 
 namespace Deployer\Logger;
 
-use Deployer\Component\ProcessRunner\Printer;
+use Deployer\Exception\Exception;
+use Deployer\Exception\RunException;
 use Deployer\Host\Host;
 use Deployer\Logger\Handler\HandlerInterface;
+use Deployer\Task\Task;
+use Symfony\Component\Console\Output\OutputInterface;
+use Throwable;
+
+use function Deployer\Support\ci_name;
+use function Deployer\Support\human_duration;
 
 class Logger
 {
-    /**
-     * @var HandlerInterface
-     */
-    private $handler;
+    private OutputInterface $output;
+    private HandlerInterface $fileLog;
 
-    public function __construct(HandlerInterface $handler)
+    private ?float $startTime = null;
+
+    public function __construct(OutputInterface $output, HandlerInterface $log)
     {
-        $this->handler = $handler;
+        $this->output = $output;
+        $this->fileLog = $log;
     }
 
-    public function log(string $message): void
+    public function command(Host $host, string $type, string $command): void
     {
-        $this->handler->log("$message\n");
+        if ($this->output->isVerbose()) {
+            $this->output->writeln("[{$host->getTag()}] <fg=green;options=bold>$type</> $command");
+        }
+        $this->fileLog->writeln("[{$host->getAlias()}] $type: $command");
     }
 
-    public function callback(Host $host): \Closure
+    public function print(Host $host, string $buffer, bool $force = false): void
     {
-        return function ($type, $buffer) use ($host) {
-            $this->printBuffer($host, $type, $buffer);
-        };
-    }
-
-    public function printBuffer(Host $host, string $type, string $buffer): void
-    {
+        if ($this->output->isVerbose() || $force) {
+            foreach (explode("\n", rtrim($buffer)) as $line) {
+                if (empty($line)) {
+                    return;
+                }
+                $this->output->writeln("[{$host->getTag()}] $line");
+            }
+        }
         foreach (explode("\n", rtrim($buffer)) as $line) {
-            $this->writeln($host, $type, $line);
+            if (empty($line)) {
+                return;
+            }
+            $this->fileLog->writeln("[{$host->getAlias()}] $line");
         }
     }
 
-    public function writeln(Host $host, string $type, string $line): void
+    public function startTask(Task $task): void
     {
-        $line = Printer::filterOutput($line);
+        $this->startTime = round(microtime(true) * 1000);
+        $ci = ci_name();
+        if ($ci === 'github') {
+            $this->output->writeln("::group::task {$task->getName()}");
+        } elseif ($ci === 'gitlab') {
+            $sectionId = md5($task->getName());
+            $start = round($this->startTime / 1000);
+            $this->output->writeln("\e[0Ksection_start:{$start}:{$sectionId}\r\e[0K{$task->getName()}");
+        } else {
+            $this->output->writeln("<fg=cyan;options=bold>task</> {$task->getName()}");
+        }
+        $this->fileLog->writeln("# task {$task->getName()}");
+    }
 
-        // Omit empty lines
-        if (empty($line)) {
-            return;
+    public function endTask(Task $task): void
+    {
+        if (empty($this->startTime)) {
+            $this->startTime = round(microtime(true) * 1000);
         }
 
-        $this->log("[{$host->getAlias()}] $line");
+        $endTime = round(microtime(true) * 1000);
+        $taskTime = human_duration((int) ($endTime - $this->startTime));
+
+        $ci = ci_name();
+        if ($ci === 'github') {
+            $this->output->writeln("<fg=yellow;options=bold>done</> {$task->getName()} $taskTime");
+            $this->output->writeln("::endgroup::");
+        } elseif ($ci === 'gitlab') {
+            $this->output->writeln("<fg=yellow;options=bold>done</> {$task->getName()} $taskTime");
+            $sectionId = md5($task->getName());
+            $endSec = (int) round($endTime / 1000);
+            $this->output->writeln("\e[0Ksection_end:{$endSec}:{$sectionId}\r\e[0K");
+        } elseif ($this->output->isVeryVerbose()) {
+            $this->output->writeln("<fg=yellow;options=bold>done</> {$task->getName()} $taskTime");
+        }
+
+        $this->fileLog->writeln("# done {$task->getName()} $taskTime");
+    }
+
+    public function endOnHost(Host $host): void
+    {
+        if ($this->output->isVeryVerbose()) {
+            $this->output->writeln("<fg=yellow;options=bold>done</> on {$host->getTag()}");
+        }
+
+        $this->fileLog->writeln("# done on {$host->getAlias()}");
+    }
+
+    public function renderException(Throwable $exception, Host $host): void
+    {
+        if ($exception instanceof RunException) {
+            $message = "[{$host->getTag()}] <fg=white;bg=red> error </> <comment>in {$exception->getTaskFilename()} on line {$exception->getTaskLineNumber()}:</>\n";
+            if ($this->output->getVerbosity() === OutputInterface::VERBOSITY_NORMAL) {
+                $message .= "[{$host->getTag()}] <fg=green;options=bold>run</> {$exception->getCommand()}\n";
+                foreach (explode("\n", $exception->getErrorOutput()) as $line) {
+                    $line = trim($line);
+                    if ($line !== "") {
+                        $message .= "[{$host->getTag()}] <fg=red>err</> $line\n";
+                    }
+                }
+                foreach (explode("\n", $exception->getOutput()) as $line) {
+                    $line = trim($line);
+                    if ($line !== "") {
+                        $message .= "[{$host->getTag()}] $line\n";
+                    }
+                }
+            }
+            $message .= "[{$host->getTag()}] <fg=red>exit code</> {$exception->getExitCode()} ({$exception->getExitCodeText()})\n";
+            $this->output->write($message);
+        } else {
+            $message = "";
+            $class = get_class($exception);
+            $file = basename($exception->getFile());
+            $line = $exception->getLine();
+            if ($exception instanceof Exception) {
+                $file = $exception->getTaskFilename();
+                $line = $exception->getTaskLineNumber();
+            }
+            $message .= "[{$host->getTag()}] <fg=white;bg=red> $class </> <comment>in $file on line $line:</>\n";
+            $message .= "[{$host->getTag()}]\n";
+            foreach (explode("\n", $exception->getMessage()) as $line) {
+                $line = trim($line);
+                if ($line !== "") {
+                    $message .= "[{$host->getTag()}]   <comment>$line</comment>\n";
+                }
+            }
+            $message .= "[{$host->getTag()}]\n";
+            if ($this->output->isDebug()) {
+                foreach (explode("\n", $exception->getTraceAsString()) as $line) {
+                    $line = trim($line);
+                    if ($line !== "") {
+                        $message .= "[{$host->getTag()}] $line\n";
+                    }
+                }
+            }
+            $this->output->write($message);
+        }
+
+        $this->fileLog->writeln("[{$host->getAlias()}] $exception");
+
+        if ($exception->getPrevious()) {
+            $this->renderException($exception->getPrevious(), $host);
+        }
     }
 }

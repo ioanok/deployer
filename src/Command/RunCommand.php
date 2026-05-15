@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -15,6 +17,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface as Input;
 use Symfony\Component\Console\Input\InputOption as Option;
 use Symfony\Component\Console\Output\OutputInterface as Output;
+
 use function Deployer\cd;
 use function Deployer\get;
 use function Deployer\has;
@@ -23,6 +26,7 @@ use function Deployer\test;
 
 class RunCommand extends SelectCommand
 {
+    use CommandCommon;
     use CustomOption;
 
     public function __construct(Deployer $deployer)
@@ -31,25 +35,31 @@ class RunCommand extends SelectCommand
         $this->setDescription('Run any arbitrary command on hosts');
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this->addArgument(
             'command-to-run',
             InputArgument::REQUIRED,
-            'Command to run on a remote host'
+            'Command to run on a remote host',
         );
         parent::configure();
         $this->addOption(
             'option',
             'o',
             Option::VALUE_REQUIRED | Option::VALUE_IS_ARRAY,
-            'Set configuration option'
+            'Set configuration option',
         );
         $this->addOption(
             'timeout',
             't',
             Option::VALUE_REQUIRED,
-            'Command timeout in seconds'
+            'Command timeout in seconds',
+        );
+        $this->addOption(
+            'raw',
+            'r',
+            Option::VALUE_NONE,
+            'No formatting, raw command output',
         );
     }
 
@@ -57,6 +67,7 @@ class RunCommand extends SelectCommand
     {
         $this->deployer->input = $input;
         $this->deployer->output = $output;
+        $this->telemetry();
 
         $command = $input->getArgument('command-to-run') ?? '';
         $hosts = $this->selectHosts($input, $output);
@@ -69,17 +80,18 @@ class RunCommand extends SelectCommand
                     cd($path);
                 }
             }
-            run($command, [
-                'real_time_output' => true,
-                'timeout' => intval($input->getOption('timeout')),
-            ]);
+            run(
+                $command,
+                timeout: intval($input->getOption('timeout')),
+                forceOutput: true,
+            );
         });
 
         foreach ($hosts as $host) {
             try {
                 $task->run(new Context($host));
             } catch (\Throwable $exception) {
-                $this->deployer->messenger->renderException($exception, $host);
+                $this->deployer->logger->renderException($exception, $host);
             }
         }
 

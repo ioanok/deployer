@@ -7,7 +7,7 @@
 
 namespace Deployer\Task;
 
-use Deployer\Configuration\Configuration;
+use Deployer\Configuration;
 use Deployer\Host\Host;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Input\InputInterface;
@@ -21,7 +21,7 @@ class ContextTest extends TestCase
         $host
             ->expects($this->once())
             ->method('config')
-            ->willReturn($this->createMock(Configuration::class));
+            ->willReturn($this->createStub(Configuration::class));
 
         $context = new Context($host);
 

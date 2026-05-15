@@ -1,47 +1,45 @@
 # Getting Started
 
-In this tutorial we will cover:
+This tutorial walks you through provisioning a server with the [provision](recipe/provision.md) recipe and running
+your first deploy.
 
-- Setting up a new host with the [provision](recipe/provision.md) recipe.
-- Configuring a deployment and perfoming our first deploy.
+## Step 1: Install Deployer {#install}
 
-First, [install Deployer](installation.md):
-
-Now lets cd into the project and run the following command:
+[Install Deployer](installation.md), then run this in your project directory:
 
 ```sh
 dep init
 ```
 
-Deployer will ask you a few questions, and after finishing you will have a
-**deploy.php** or **deploy.yaml** file. This is our deployment recipe.
-It contains hosts, tasks and requires other recipes. All framework recipes
-that come with Deployer are based on the [common](recipe/common.md) recipe.
+Answer the prompts. Deployer creates a **deploy.php** or **deploy.yaml** recipe defining your hosts, tasks, and
+imported recipes. Framework recipes extend the [common](recipe/common.md) recipe.
 
-## Provision
+---
+
+## Step 2: Provision a New Server {#provision}
 
 :::note
-If you already have a configured webserver you may skip to
-[deployment](#deploy).
+Skip to [deployment](#deploy) if your server is already set up.
 :::
 
-Let's create a new VPS on Linode, DigitalOcean, Vultr, AWS, GCP, etc.
+### Setting Up Your VPS
 
-Make sure the image is **Ubuntu 20.04 LTS** as this version is supported by
-Deployer's [provision](recipe/provision.md) recipe.
+Create an **Ubuntu** VPS on Linode, DigitalOcean, Vultr, AWS, GCP, or similar. The
+[provision](recipe/provision.md) recipe targets Ubuntu.
+
+Provisioning needs root SSH key auth, which recent Ubuntu images disable by default. Enable it now; you can
+disable root SSH again once provisioning finishes.
 
 :::tip
-Configure a DNS record for your domain that points to the IP address of your server. 
-This will allow you to ssh into the server using your domain name instead of the IP address.
+Point a DNS record at the server's IP so you can SSH by domain name.
 :::
 
-Our **deploy.php** recipe contains a host definition with a few important params:
+### Configuring `deploy.php`
 
-- `remote_user` the user name for the ssh connection,
-- `deploy_path` the file path on the host where we are going to deploy.
+Define a host with at least these two settings:
 
-Let's set `remote_user` to be `deployer`. Right now our new server probably only has the `root` user. The provision recipe will 
-create and configure a `deployer` user for us.
+- **`remote_user`** — SSH username.
+- **`deploy_path`** — where to deploy on the server.
 
 ```php
 host('example.org')
@@ -49,90 +47,82 @@ host('example.org')
     ->set('deploy_path', '~/example');
 ```
 
-To connect to the remote host we need to specify an identity key or private key.
-We can add our identity key directly into the host definition, but it's better to put it
-in the **~/.ssh/config** file:
+If the server only has `root`, the `provision` recipe creates and configures a `deployer` user for you.
+
+### Adding an Identity Key
+
+Put your SSH key in `~/.ssh/config` instead of the recipe:
 
 ```
 Host *
   IdentityFile ~/.ssh/id_rsa
 ```
 
-Now let's provision our server. As our host doesn't have a user `deployer`,
-we are going to override `remote_user` for provisioning via `-o remote_user=root`.
+### Provisioning the Server
+
+Provision:
 
 ```sh
-dep provision -o remote_user=root
+dep provision
 ```
 
 :::tip
-If your server doesn't have a `root` user but your remote user can use `sudo` to
-become root, then use:
 
-```sh
-dep provision -o become=root
-```
+- Connect as a non-root user: `dep provision -o provision_user=your-user`
+- Use `sudo` to become root: `dep provision -o become=root`
 
 :::
 
-Deployer will ask you a few questions during provisioning: php version,
-database type, etc. Next, Deployer will configure our server and create
-the `deployer` user. Provisioning takes around **5 minutes** and will install
-everything we need to run a website. A new website will be configured
-at [deploy_path](recipe/common.md#deploy_path).
+Provisioning prompts for PHP version, database, and more. It takes about **5 minutes** and installs everything
+needed to serve a website at [deploy_path](recipe/common.md#deploy_path).
 
-After we have configured the webserver, let's deploy the project.
+---
 
-## Deploy
+## Step 3: Deploy Your Project {#deploy}
 
-To deploy the project:
+Deploy:
 
 ```sh
 dep deploy
 ```
 
-If deploy failed, Deployer will print an error message and which command was unsuccessful.
-Most likely we need to configure the correct database credentials in the _.env_ file or similar.
-
-Ssh to the host, for example, for editing the _.env_ file:
+On failure, Deployer prints the error and the command that failed. Common cause: missing `.env` or credentials.
+SSH into the server to edit files in place:
 
 ```sh
 dep ssh
 ```
 
-:::tip
-If your webserver is using an OpenSSH version older than v7.6, updating the code may fail with the error
-message `unsupported option "accept-new".` In this case, override the Git SSH command with:
-```php
-set('git_ssh_command', 'ssh');
-```
-:::
+Resume from a specific step:
 
-After everything is configured properly we can resume our deployment from the
-place it stopped. However, this is not required; we can just start a new deploy:
-
-```
+```sh
 dep deploy --start-from deploy:migrate
 ```
 
-After our first successful deployment, we can find the following directory structure on our server:
+---
+
+## Step 4: Post-Deployment Configuration
+
+After the first deploy, the server layout looks like this:
 
 ```
-~/example                      // The deploy_path.
- |- current -> releases/1      // Symlink to the current release.
- |- releases                   // Dir for all releases.
-    |- 1                       // Actual files location.
+~/example                      // deploy_path
+ |- current -> releases/1      // Symlink to current release
+ |- releases                   // Directory for all releases
+    |- 1                       // Latest release
        |- ...
-       |- .env -> shared/.env  // Symlink to shared .env file.
- |- shared                     // Dirs for shared files between releases.
+       |- .env -> shared/.env  // Symlink to shared .env file
+ |- shared                     // Shared files between releases
     |- ...
-    |- .env                    // Example: shared .env file.
- |- .dep                       // Deployer configuration files.
+    |- .env                    // Shared .env file
+ |- .dep                       // Deployer configuration files
 ```
 
-Configure you webserver to serve the `current` directory. For example, for nginx:
+### Web Server Setup
 
-```
+Point your web server at the `current` directory. Example for Nginx:
+
+```nginx
 root /home/deployer/example/current/public;
 index index.php;
 location / {
@@ -140,10 +130,14 @@ location / {
 }
 ```
 
-If you're using the [provision recipe](recipe/provision.md), Deployer will automatically configure the Caddy
-webserver to serve from the [public_path](/docs/recipe/provision/website.md#public_path).
+The [provision recipe](recipe/provision.md) configures Caddy automatically, serving from
+[public_path](recipe/provision/website.md#public_path).
 
-Now let's add a build step on our host:
+---
+
+## Step 5: Adding a Build Step
+
+Add a build task to **deploy.php** and hook it after code updates:
 
 ```php
 task('build', function () {
@@ -155,11 +149,19 @@ task('build', function () {
 after('deploy:update_code', 'build');
 ```
 
-Deployer has a useful task for examining what is currently deployed.
+---
+
+## Examining Deployments
+
+List deployments with:
+
+```sh
+dep releases
+```
+
+Example output:
 
 ```
-$ dep releases
-task releases
 +---------------------+--------- deployer.org -------+--------+-----------+
 | Date (UTC)          | Release     | Author         | Target | Commit    |
 +---------------------+-------------+----------------+--------+-----------+
@@ -168,6 +170,6 @@ task releases
 ```
 
 :::tip
-During development, the [dep push](recipe/deploy/push.md) task maybe useful
-to create a patch of local changes and push them to the host.
+During development, [dep push](recipe/deploy/push.md) ships a patch of local changes to the host without going
+through git.
 :::

@@ -12,20 +12,20 @@ require 'recipe/provision/nodejs.php';
 
 
 ## Configuration
-### nodejs_version
+### node_version
 [Source](https://github.com/deployphp/deployer/blob/master/recipe/provision/nodejs.php#L5)
 
-Node.js version from https://github.com/nodesource/distributions.
+
 
 ```php title="Default value"
-'node_16.x'
+'--lts'
 ```
 
 
 
 ## Tasks
 
-### provision:npm
+### provision\:node {#provision-node}
 [Source](https://github.com/deployphp/deployer/blob/master/recipe/provision/nodejs.php#L8)
 
 Installs npm packages.

@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -17,25 +19,19 @@ use Deployer\Command\RunCommand;
 use Deployer\Command\SshCommand;
 use Deployer\Command\TreeCommand;
 use Deployer\Command\WorkerCommand;
-use Deployer\Component\PharUpdate\Console\Command as PharUpdateCommand;
-use Deployer\Component\PharUpdate\Console\Helper as PharUpdateHelper;
 use Deployer\Component\Pimple\Container;
-use Deployer\Component\ProcessRunner\Printer;
-use Deployer\Component\ProcessRunner\ProcessRunner;
-use Deployer\Component\Ssh\Client;
-use Deployer\Configuration\Configuration;
+use Deployer\Exception\SchemaException;
 use Deployer\Executor\Master;
-use Deployer\Executor\Messenger;
-use Deployer\Executor\Server;
 use Deployer\Host\Host;
 use Deployer\Host\HostCollection;
 use Deployer\Host\Localhost;
-use Deployer\Importer\Importer;
+use Deployer\Import\Import;
 use Deployer\Logger\Handler\FileHandler;
 use Deployer\Logger\Handler\NullHandler;
 use Deployer\Logger\Logger;
+use Deployer\ProcessRunner\ProcessRunner;
 use Deployer\Selector\Selector;
-use Deployer\Task;
+use Deployer\Ssh\SshClient;
 use Deployer\Task\ScriptManager;
 use Deployer\Task\TaskCollection;
 use Deployer\Utility\Httpie;
@@ -51,8 +47,6 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 
 /**
- * Deployer class represents DI container for configuring
- *
  * @property Application $console
  * @property InputInterface $input
  * @property OutputInterface $output
@@ -60,26 +54,19 @@ use Throwable;
  * @property HostCollection|Host[] $hosts
  * @property Configuration $config
  * @property Rsync $rsync
- * @property Client $sshClient
+ * @property SshClient $sshClient
  * @property ProcessRunner $processRunner
  * @property Task\ScriptManager $scriptManager
  * @property Selector $selector
- * @property Server $server
  * @property Master $master
- * @property Messenger $messenger
- * @property Messenger $logger
- * @property Printer $pop
+ * @property Logger $logger
  * @property Collection $fail
  * @property InputDefinition $inputDefinition
- * @property Importer $importer
+ * @property Import $importer
  */
 class Deployer extends Container
 {
-    /**
-     * Global instance of deployer. It's can be accessed only after constructor call.
-     * @var Deployer
-     */
-    private static $instance;
+    private static ?self $instance = null;
 
     public function __construct(Application $console)
     {
@@ -90,7 +77,7 @@ class Deployer extends Container
          ******************************/
 
         $console->getDefinition()->addOption(
-            new InputOption('file', 'f', InputOption::VALUE_REQUIRED, 'Recipe file path')
+            new InputOption('file', 'f', InputOption::VALUE_REQUIRED, 'Recipe file path'),
         );
 
         $this['console'] = function () use ($console) {
@@ -131,17 +118,22 @@ class Deployer extends Container
          *            Core            *
          ******************************/
 
-        $this['pop'] = function ($c) {
-            return new Printer($c['output']);
+        $this['logHandler'] = function () {
+            return !empty($this['log'])
+                ? new FileHandler($this['log'])
+                : new NullHandler();
+        };
+        $this['logger'] = function ($c) {
+            return new Logger($c['output'], $this['logHandler']);
         };
         $this['sshClient'] = function ($c) {
-            return new Client($c['output'], $c['pop'], $c['logger']);
+            return new SshClient($c['output'], $c['logger']);
         };
         $this['rsync'] = function ($c) {
-            return new Rsync($c['pop'], $c['output']);
+            return new Rsync($c['output'], $c['logger']);
         };
         $this['processRunner'] = function ($c) {
-            return new ProcessRunner($c['pop'], $c['logger']);
+            return new ProcessRunner($c['logger']);
         };
         $this['tasks'] = function () {
             return new TaskCollection();
@@ -158,38 +150,16 @@ class Deployer extends Container
         $this['fail'] = function () {
             return new Collection();
         };
-        $this['messenger'] = function ($c) {
-            return new Messenger($c['input'], $c['output'], $c['logger']);
-        };
-        $this['server'] = function ($c) {
-            return new Server(
-                $c['output'],
-                $this,
-            );
-        };
         $this['master'] = function ($c) {
             return new Master(
+                $c['hosts'],
                 $c['input'],
                 $c['output'],
-                $c['server'],
-                $c['messenger'],
+                $c['logger'],
             );
         };
         $this['importer'] = function () {
-            return new Importer();
-        };
-
-        /******************************
-         *           Logger           *
-         ******************************/
-
-        $this['log_handler'] = function () {
-            return !empty($this['log'])
-                ? new FileHandler($this['log'])
-                : new NullHandler();
-        };
-        $this['logger'] = function () {
-            return new Logger($this['log_handler']);
+            return new Import();
         };
 
         self::$instance = $this;
@@ -197,50 +167,47 @@ class Deployer extends Container
 
     public static function get(): self
     {
+        if (self::$instance === null) {
+            throw new \RuntimeException('Deployer is not initialized.');
+        }
+
         return self::$instance;
     }
 
     /**
-     * Init console application
+     * @internal For tests that need a clean Deployer singleton between cases.
      */
-    public function init()
+    public static function resetInstance(): void
+    {
+        self::$instance = null;
+    }
+
+    public function init(): void
     {
         $this->addTaskCommands();
-        $this->getConsole()->add(new BlackjackCommand());
-        $this->getConsole()->add(new ConfigCommand($this));
-        $this->getConsole()->add(new WorkerCommand($this));
-        $this->getConsole()->add(new InitCommand());
-        $this->getConsole()->add(new TreeCommand($this));
-        $this->getConsole()->add(new SshCommand($this));
-        $this->getConsole()->add(new RunCommand($this));
-        if (self::isPharArchive()) {
-            $selfUpdate = new PharUpdateCommand('self-update');
-            $selfUpdate->setDescription('Updates deployer.phar to the latest version');
-            $selfUpdate->setManifestUri('https://deployer.org/manifest.json');
-            $selfUpdate->setRunningFile(DEPLOYER_BIN);
-            $this->getConsole()->add($selfUpdate);
-            $this->getConsole()->getHelperSet()->set(new PharUpdateHelper());
-        }
+        $this->getConsole()->addCommand(new BlackjackCommand());
+        $this->getConsole()->addCommand(new ConfigCommand($this));
+        $this->getConsole()->addCommand(new WorkerCommand($this));
+        $this->getConsole()->addCommand(new InitCommand());
+        $this->getConsole()->addCommand(new TreeCommand($this));
+        $this->getConsole()->addCommand(new SshCommand($this));
+        $this->getConsole()->addCommand(new RunCommand($this));
     }
 
     /**
      * Transform tasks to console commands.
      */
-    public function addTaskCommands()
+    public function addTaskCommands(): void
     {
         foreach ($this->tasks as $name => $task) {
             $command = new MainCommand($name, $task->getDescription(), $this);
             $command->setHidden($task->isHidden());
 
-            $this->getConsole()->add($command);
+            $this->getConsole()->addCommand($command);
         }
     }
 
-    /**
-     * @return mixed
-     * @throws \InvalidArgumentException
-     */
-    public function __get(string $name)
+    public function __get(string $name): mixed
     {
         if (isset($this[$name])) {
             return $this[$name];
@@ -249,10 +216,7 @@ class Deployer extends Container
         }
     }
 
-    /**
-     * @param mixed $value
-     */
-    public function __set(string $name, $value)
+    public function __set(string $name, mixed $value): void
     {
         $this[$name] = $value;
     }
@@ -267,10 +231,7 @@ class Deployer extends Container
         return $this->getConsole()->getHelperSet()->get($name);
     }
 
-    /**
-     * Run Deployer
-     */
-    public static function run(string $version, ?string $deployFile)
+    public static function run(string $version, ?string $deployFile): void
     {
         if (str_contains($version, 'master')) {
             // Get version from composer.lock
@@ -303,16 +264,20 @@ class Deployer extends Container
         $output = new ConsoleOutput();
 
         try {
-            // Init Deployer
             $console = new Application('Deployer', $version);
             $deployer = new self($console);
 
             // Import recipe file
             if (is_readable($deployFile ?? '')) {
+                $deployer->config->set('recipe_type', match (pathinfo($deployFile, PATHINFO_EXTENSION)) {
+                    'php' => 'php',
+                    'maml' => 'maml',
+                    'yaml', 'yml' => 'yaml',
+                    default => 'unknown',
+                });
                 $deployer->importer->import($deployFile);
             }
 
-            // Run Deployer
             $deployer->init();
             $console->run($input, $output);
 
@@ -321,25 +286,31 @@ class Deployer extends Container
                 $output->setVerbosity(OutputInterface::VERBOSITY_DEBUG);
             }
             self::printException($output, $exception);
-            
+
             exit(1);
         }
     }
 
-    public static function printException(OutputInterface $output, Throwable $exception)
+    public static function printException(OutputInterface $output, Throwable $exception): void
     {
-        $class = get_class($exception);
-        $file = basename($exception->getFile());
-        $output->writeln([
-            "<fg=white;bg=red> {$class} </> <comment>in {$file} on line {$exception->getLine()}:</>",
-            "",
-            implode("\n", array_map(function ($line) {
-                return "  " . $line;
-            }, explode("\n", $exception->getMessage()))),
-            "",
-        ]);
-        if ($output->isDebug()) {
-            $output->writeln($exception->getTraceAsString());
+        if ($exception instanceof SchemaException) {
+            $output->writeln([
+                "<fg=white;bg=red> Schema error </> {$exception->getMessage()}",
+            ]);
+        } else {
+            $class = get_class($exception);
+            $file = basename($exception->getFile());
+            $output->writeln([
+                "<fg=white;bg=red> {$class} </> <comment>in {$file} on line {$exception->getLine()}:</>",
+                "",
+                implode("\n", array_map(function ($line) {
+                    return "  " . $line;
+                }, explode("\n", $exception->getMessage()))),
+                "",
+            ]);
+            if ($output->isDebug()) {
+                $output->writeln($exception->getTraceAsString());
+            }
         }
 
         if ($exception->getPrevious()) {
@@ -349,32 +320,31 @@ class Deployer extends Container
 
     public static function isWorker(): bool
     {
-        return Deployer::get()->config->has('master_url');
+        return defined('MASTER_ENDPOINT');
     }
 
     /**
-     * @param mixed ...$arguments
      * @return array|bool|string
-     * @throws \Exception
      */
-    public static function proxyCallToMaster(Host $host, string $func, ...$arguments)
+    public static function masterCall(Host $host, string $func, mixed ...$arguments): mixed
     {
-        // As request to master will stop master permanently,
-        // wait a little bit in order for periodic timer of
-        // master gather worker outputs and print it to user.
-        usleep(100000); // Sleep 100ms.
-        return Httpie::get(get('master_url') . '/proxy')
-            ->setopt(CURLOPT_TIMEOUT, 0) // no timeout
+        // As request to master will stop master permanently, wait a little bit
+        // in order for ticker gather worker outputs and print it to user.
+        usleep(100_000); // Sleep 100ms.
+
+        return Httpie::post(MASTER_ENDPOINT . '/proxy')
+            ->noTimeout()
+            ->bearerToken(MASTER_TOKEN)
             ->jsonBody([
                 'host' => $host->getAlias(),
                 'func' => $func,
                 'arguments' => $arguments,
             ])
-            ->getJson();
+            ->sendJson();
     }
 
     public static function isPharArchive(): bool
     {
-        return 'phar:' === substr(__FILE__, 0, 5);
+        return str_starts_with(__FILE__, 'phar:');
     }
 }

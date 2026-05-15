@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -19,10 +21,7 @@ use Throwable;
 
 class Worker
 {
-    /**
-     * @var Deployer
-     */
-    private $deployer;
+    private Deployer $deployer;
 
     public function __construct(Deployer $deployer)
     {
@@ -38,11 +37,11 @@ class Worker
             $task->run($context);
 
             if ($task->getName() !== 'connect') {
-                $this->deployer->messenger->endOnHost($host);
+                $this->deployer->logger->endOnHost($host);
             }
             return 0;
         } catch (Throwable $e) {
-            $this->deployer->messenger->renderException($e, $host);
+            $this->deployer->logger->renderException($e, $host);
             if ($e instanceof GracefulShutdownException) {
                 return GracefulShutdownException::EXIT_CODE;
             }

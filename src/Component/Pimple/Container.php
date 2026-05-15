@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -174,7 +176,7 @@ class Container implements \ArrayAccess
             throw new ExpectedInvokableException('Service definition is not a Closure or invokable object.');
         }
 
-        $this->factories->attach($callable);
+        $this->factories->offsetSet($callable, null);
 
         return $callable;
     }
@@ -196,7 +198,7 @@ class Container implements \ArrayAccess
             throw new ExpectedInvokableException('Callable is not a Closure or invokable object.');
         }
 
-        $this->protected->attach($callable);
+        $this->protected->offsetSet($callable, null);
 
         return $callable;
     }
@@ -268,8 +270,8 @@ class Container implements \ArrayAccess
         };
 
         if (isset($this->factories[$factory])) {
-            $this->factories->detach($factory);
-            $this->factories->attach($extended);
+            $this->factories->offsetUnset($factory);
+            $this->factories->offsetSet($extended, null);
         }
 
         return $this[$id] = $extended;

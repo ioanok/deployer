@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /* (c) Anton Medvedev <anton@medv.io>
  *
@@ -8,27 +10,22 @@
 
 namespace Deployer\Host;
 
-use Deployer\Configuration\Configuration;
+use Deployer\Configuration;
 use Deployer\Deployer;
 use Deployer\Exception\ConfigurationException;
 use Deployer\Exception\Exception;
 use Deployer\Task\Context;
+
 use function Deployer\Support\colorize_host;
 use function Deployer\Support\parse_home_dir;
 
 class Host
 {
-    /**
-     * @var Configuration $config
-     */
-    private $config;
+    private Configuration $config;
 
     public function __construct(string $hostname)
     {
-        $parent = null;
-        if (Deployer::get()) {
-            $parent = Deployer::get()->config;
-        }
+        $parent = Deployer::get()->config;
         $this->config = new Configuration($parent);
         $this->set('#alias', $hostname);
         $this->set('hostname', preg_replace('/\/.+$/', '', $hostname));
@@ -36,7 +33,7 @@ class Host
 
     public function __toString(): string
     {
-        return $this->getTag();
+        return $this->getAlias();
     }
 
     public function config(): Configuration
@@ -44,10 +41,7 @@ class Host
         return $this->config;
     }
 
-    /**
-     * @param mixed $value
-     */
-    public function set(string $name, $value): self
+    public function set(string $name, mixed $value): self
     {
         if ($name === 'alias') {
             throw new ConfigurationException("Can not update alias of the host.\nThis will change only host own alias,\nbut not the key it is stored in HostCollection.");
@@ -75,11 +69,7 @@ class Host
         return $this->config->hasOwn($name);
     }
 
-    /**
-     * @param mixed|null $default
-     * @return mixed|null
-     */
-    public function get(string $name, $default = null)
+    public function get(string $name, mixed $default = null): mixed
     {
         return $this->config->get($name, $default);
     }
@@ -122,20 +112,13 @@ class Host
         return $this->config->get('remote_user', null);
     }
 
-    /**
-     * @param string|int|null $port
-     * @return $this
-     */
-    public function setPort($port): self
+    public function setPort(int|string|null $port): self
     {
         $this->config->set('port', $port);
         return $this;
     }
 
-    /**
-     * @return string|int|null
-     */
-    public function getPort()
+    public function getPort(): int|string|null
     {
         return $this->config->get('port', null);
     }
@@ -195,6 +178,17 @@ class Host
         return $this->config->get('shell', null);
     }
 
+    public function setShellPath(string $path): self
+    {
+        $this->config->set('shell_path', $path);
+        return $this;
+    }
+
+    public function getShellPath(): ?string
+    {
+        return $this->config->get('shell_path', null);
+    }
+
     public function setDeployPath(string $path): self
     {
         $this->config->set('deploy_path', $path);
@@ -209,6 +203,13 @@ class Host
     public function setLabels(array $labels): self
     {
         $this->config->set('labels', $labels);
+        return $this;
+    }
+
+    public function addLabels(array $labels): self
+    {
+        $existingLabels = $this->getLabels() ?? [];
+        $this->setLabels(array_replace_recursive($existingLabels, $labels));
         return $this;
     }
 
@@ -265,15 +266,10 @@ class Host
         return $this->get('hostname');
     }
 
-    public function connectionOptionsString(): string
-    {
-        return implode(' ', array_map('escapeshellarg', $this->connectionOptionsArray()));
-    }
-
     /**
      * @return string[]
      */
-    public function connectionOptionsArray(): array
+    public function connectionOptions(): array
     {
         $options = [];
         if ($this->has('ssh_arguments')) {

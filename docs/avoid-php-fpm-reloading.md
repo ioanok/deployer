@@ -27,7 +27,7 @@ _current_ in the path, your server configured incorrectly.
 
 ## Fix for Nginx
 
-Nginx has special variable `$realpath_root`, use it to set up `SCRIPT_FILENAME`:
+Nginx has special variable `$realpath_root`, use it to set up `SCRIPT_FILENAME` and `DOCUMENT_ROOT`:
 
 ```diff
 location ~ \.php$ {
@@ -35,6 +35,8 @@ location ~ \.php$ {
   fastcgi_pass unix:/var/run/php/php-fpm.sock;
 - fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
 + fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+- fastcgi_param DOCUMENT_ROOT $document_root;
++ fastcgi_param DOCUMENT_ROOT $realpath_root;
 }
 ```
 
@@ -51,4 +53,12 @@ Use `resolve_root_symlink`:
 php_fastcgi * unix//run/php/php-fpm.sock {
     resolve_root_symlink
 }
+```
+
+## Fix for Apache
+
+Enable `revalidate_path` in `php.ini`:
+
+```ini
+opcache.revalidate_path=1
 ```

@@ -1,4 +1,5 @@
 <?php
+
 namespace Deployer;
 
 // Used to make a writable directory by a server.
@@ -11,8 +12,8 @@ set('http_user', function () {
 
     if (empty($httpUser)) {
         throw new \RuntimeException(
-            "Can't detect http user name.\n" .
-            "Please setup `http_user` config parameter."
+            "Can't detect http user name.\n"
+            . "Please setup `http_user` config parameter.",
         );
     }
 
@@ -28,8 +29,8 @@ set('http_group', function () {
 
     if (empty($httpGroup)) {
         throw new \RuntimeException(
-            "Can't detect http user name.\n" .
-            "Please setup `http_group` config parameter."
+            "Can't detect http user name.\n"
+            . "Please setup `http_group` config parameter.",
         );
     }
 
@@ -56,6 +57,12 @@ set('writable_recursive', false);
 
 // The chmod mode.
 set('writable_chmod_mode', '0755');
+
+// List of additional groups to give write permission to.
+set('writable_acl_groups', []);
+
+// Force ACLs to be reapplied even if they already exist. Useful when recursive ACLs need to reach new nested paths but sudo isn't available. Slower, so enable only to fix writable dir permissions.
+set('writable_acl_force', false);
 
 desc('Makes writable dirs');
 task('deploy:writable', function () {
@@ -95,13 +102,20 @@ task('deploy:writable', function () {
             $remoteUser = run('whoami');
         }
         $httpUser = get('http_user');
-        if (strpos(run("chmod 2>&1; true"), '+a') !== false) {
-            // Try OS-X specific setting of access-rights
+        if (run("uname -s") === 'Darwin') {
+            // macOS supports chmod +a for ACL management
 
             run("$sudo chmod +a \"$httpUser allow delete,write,append,file_inherit,directory_inherit\" $dirs");
             run("$sudo chmod +a \"$remoteUser allow delete,write,append,file_inherit,directory_inherit\" $dirs");
         } elseif (commandExist('setfacl')) {
             $setFaclUsers = "-m u:\"$httpUser\":rwX";
+            $setFaclGroups = "";
+            foreach (get("writable_acl_groups") as $index => $group) {
+                if ($index > 0) {
+                    $setFaclGroups .= " ";
+                }
+                $setFaclGroups .= "-m g:\"$group\":rwX";
+            }
             // Check if remote user exists, before adding it to setfacl
             $remoteUserExists = test("id -u $remoteUser &>/dev/null 2>&1 || exit 0");
             if ($remoteUserExists === true) {
@@ -110,21 +124,23 @@ task('deploy:writable', function () {
             if (empty($sudo)) {
                 // When running without sudo, exception may be thrown
                 // if executing setfacl on files created by http user (in directory that has been setfacl before).
-                // These directories/files should be skipped.
-                // Now, we will check each directory for ACL and only setfacl for which has not been set before.
+                // These directories/files should be skipped unless forcing ACL reset.
+                // Now, we will check each directory for ACL and only setfacl for which has not been set before,
+                // unless writable_acl_force is enabled.
                 $writeableDirs = get('writable_dirs');
+                $forceAcl = get('writable_acl_force');
                 foreach ($writeableDirs as $dir) {
                     // Check if ACL has been set or not
                     $hasfacl = run("getfacl -p $dir | grep \"^user:$httpUser:.*w\" | wc -l");
-                    // Set ACL for directory if it has not been set before
-                    if (!$hasfacl) {
-                        run("setfacl -L $recursive $setFaclUsers $dir");
-                        run("setfacl -dL $recursive $setFaclUsers $dir");
+                    // Set ACL for directory if it has not been set before or if forcing ACL reset
+                    if ($forceAcl || !$hasfacl) {
+                        run("setfacl -L $recursive $setFaclUsers $setFaclGroups $dir");
+                        run("setfacl -dL $recursive $setFaclUsers $setFaclGroups $dir");
                     }
                 }
             } else {
-                run("$sudo setfacl -L $recursive $setFaclUsers $dirs");
-                run("$sudo setfacl -dL $recursive $setFaclUsers $dirs");
+                run("$sudo setfacl -L $recursive $setFaclUsers $setFaclGroups $dirs");
+                run("$sudo setfacl -dL $recursive $setFaclUsers $setFaclGroups $dirs");
             }
         } else {
             $alias = currentHost()->getAlias();
@@ -133,12 +149,12 @@ task('deploy:writable', function () {
     } elseif ($mode === 'sticky') {
         // Changes the group of the files, sets sticky bit to the directories
         // and add the writable bit for all files
-        run("for dir in $dirs;".
-            'do '.
-            'chgrp -L -R {{http_group}} ${dir}; '.
-            'find ${dir} -type d -exec chmod g+rwxs \{\} \;;'.
-            'find ${dir} -type f -exec chmod g+rw \{\} \;;'.
-            'done');
+        run("for dir in $dirs;"
+            . 'do '
+            . 'chgrp -L -R {{http_group}} ${dir}; '
+            . 'find ${dir} -type d -exec chmod g+rwxs \{\} \;;'
+            . 'find ${dir} -type f -exec chmod g+rw \{\} \;;'
+            . 'done');
     } elseif ($mode === 'skip') {
         // Does nothing, saves time if no changes are required for some environments
         return;

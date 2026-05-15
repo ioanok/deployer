@@ -1,17 +1,31 @@
 # Hosts
 
-To define a new host use the [host()](api.md#host) function. Deployer keeps a list of
-all defined hosts in the `Deployer::get()->hosts` collection.
+Define hosts with [host()](api.md#host).
+
+### Defining a Host
 
 ```php
 host('example.org');
 ```
 
-Each host contains it's own configuration key-value pairs. The [host()](api.md#host)
-call defines two important configs: **alias** and **hostname**.
+Hosts hold key-value config. Each host gets two keys for free:
 
-- **hostname** - used when connecting to remote host.
-- **alias** - used as a key in `Deployer::get()->hosts` collection.
+- **`hostname`** — used for the SSH connection.
+- **`alias`** — unique identifier in the recipe.
+
+### Reading Host Configurations
+
+Read host config inside a task with [currentHost()](api.md#currenthost):
+
+```php
+task('test', function () {
+    $hostname = currentHost()->get('hostname');
+    $alias = currentHost()->get('alias');
+    writeln("The $alias is $hostname");
+});
+```
+
+Or with `{{...}}` interpolation:
 
 ```php
 task('test', function () {
@@ -19,27 +33,30 @@ task('test', function () {
 });
 ```
 
-```
+```sh
 $ dep test
 [example.org] The example.org is example.org
 ```
 
-We can override hostname via `set()` method:
+### Overriding Hostname
+
+Override `hostname` to connect to a different address than the alias suggests:
 
 ```php
 host('example.org')
     ->set('hostname', 'example.cloud.google.com');
 ```
 
-The hostname will be used for the ssh connection, but the host will be referred
-by its alias when running Deployer.
+The alias stays `example.org`; SSH connects to `example.cloud.google.com`.
 
-```
+```sh
 $ dep test
 [example.org] The example.org is example.cloud.google.com
 ```
 
-Another important ssh connection parameter is `remote_user`.
+### Configuring Remote User
+
+Set `remote_user` to choose the SSH user:
 
 ```php
 host('example.org')
@@ -47,11 +64,9 @@ host('example.org')
     ->set('remote_user', 'deployer');
 ```
 
-Now Deployer will connect using something like
-`ssh deployer@example.cloud.google.com` to establishing connection.
+Connection becomes `ssh deployer@example.cloud.google.com`.
 
-Also, Deployer's `Host` class has special setter methods (for better IDE
-autocompletion).
+The typed setter methods give better IDE autocompletion:
 
 ```php
 host('example.org')
@@ -59,123 +74,113 @@ host('example.org')
     ->setRemoteUser('deployer');
 ```
 
-## Host config
+---
 
-### `alias`
+## Host Labels
 
-The identifier used to identify a host.
-You can use actual hostname or something like `prod` or `staging`.
+Labels are key-value tags used to group hosts:
 
-### `hostname`
+```php
+host('example.org')->setLabels(['stage' => 'prod']);
+host('staging.example.org')->setLabels(['stage' => 'staging']);
+```
 
-Deployer uses this config for actual ssh connection.
+They scale to multi-server fleets:
 
-### `remote_user`
+```php
+host('admin.example.org')->setLabels(['stage' => 'prod', 'role' => 'web']);
+host('web[1:5].example.org')->setLabels(['stage' => 'prod', 'role' => 'web']);
+host('db[1:2].example.org')->setLabels(['stage' => 'prod', 'role' => 'db']);
+host('test.example.org')->setLabels(['stage' => 'test', 'role' => 'web']);
+host('special.example.org')->setLabels(['role' => 'special']);
+```
 
-Deployer uses this config for actual ssh connection. If not specified,
-Deployer will be using `RemoteUser` from **~/.ssh/config** file, or current
-OS username.
+### Filtering Hosts by Labels
 
-### `port`
+Filter at deploy time with a [selector](selector.md):
 
-Port of remote ssh server to connect to. Default is `22`.
+```sh
+$ dep deploy stage=prod&role=web,role=special
+```
 
-### `config_file`
+- `&` — all conditions must match the same host (AND).
+- `,` — match either group (OR).
 
-Default is `~/.ssh/config`.
+Set a default selector:
 
-:::info Config file
-For best practices, avoid storing connection parameters in the `deploy.php` file, as 
-these can vary based on the deployment execution location. Instead, only include the 
-hostname and remote_user in `deploy.php`, while maintaining other parameters in the
-`~/.ssh/config` file.
+```php
+set('default_selector', "stage=prod&role=web,role=special");
+```
+
+---
+
+## Host Configurations
+
+### Key Host Configurations
+
+| Config Key             | Description                                                                                    |
+|------------------------|------------------------------------------------------------------------------------------------|
+| **`alias`**            | Identifier for the host (e.g., `prod`, `staging`).                                             |
+| **`hostname`**         | Actual hostname or IP address used for SSH connections.                                        |
+| **`remote_user`**      | SSH username. Defaults to the current OS user or `~/.ssh/config`.                              |
+| **`port`**             | SSH port. Default is `22`.                                                                     |
+| **`config_file`**      | SSH config file location. Default is `~/.ssh/config`.                                          |
+| **`identity_file`**    | SSH private key file. E.g., `~/.ssh/id_rsa`.                                                   |
+| **`forward_agent`**    | Enable SSH agent forwarding. Default is `true`.                                                |
+| **`ssh_multiplexing`** | Enable SSH multiplexing for performance. Default is `true`.                                    |
+| **`shell`**            | Shell to use. Default is `bash -ls`.                                                           |
+| **`deploy_path`**      | Directory for deployments. E.g., `~/myapp`.                                                    |
+| **`labels`**           | Key-value pairs for host selection.                                                            |
+| **`ssh_arguments`**    | Additional SSH options. E.g., `['-o UserKnownHostsFile=/dev/null']`.                           |
+| **`ssh_control_path`** | Control path for SSH multiplexing. Default is `~/.ssh/%C` or `/dev/shm/%C` in CI environments. |
+
+### Best Practices
+
+Keep sensitive SSH parameters out of `deploy.php`. Put them in `~/.ssh/config` instead:
 
 ```
 Host *
   IdentityFile ~/.ssh/id_rsa
 ```
 
-:::
+---
 
-### `identity_file`
+## Advanced Host Definitions
 
-For example, `~/.ssh/id_rsa`.
+### Multiple Hosts
 
-### `forward_agent`
-
-SSH forwarding is a way to securely tunnel network connections from your local computer to a remote server, and from the remote server to another destination. There are several types of SSH forwarding, including local, remote, and dynamic forwarding. SSH agent forwarding is a specific type of local forwarding that allows you to use your local SSH keys to authenticate on remote servers. This can be useful if you want to use your local SSH keys to connect to a remote server, but don't want to copy your keys to the remote server.
-
-Default is `true`.
-
-### `ssh_multiplexing`
-
-SSH multiplexing is a technique that allows a single Secure Shell (SSH) connection to be used for multiple interactive sessions or for multiple tunneled connections. This can be useful in a number of situations, such as when you want to open multiple terminal sessions to a remote server over a single SSH connection, or when you want to establish multiple secure connections to a remote server but don't want to open multiple SSH connections.
-
-Default is `true`.
-
-### `shell`
-
-Default is `bash -ls`.
-
-### `deploy_path`
-
-For example, `~/myapp`.
-
-### `labels`
-
-Key-value pairs for host selector.
-
-### `ssh_arguments`
-
-For example, `['-o UserKnownHostsFile=/dev/null']`
-
-### `ssh_control_path`
-
-Default is `~/.ssh/%C`.
-
-If **CI** env is present, default value is `/dev/shm/%C`.
-
-## Multiple hosts
-
-You can pass multiple hosts to the host function:
+Define several hosts with shared config in one call:
 
 ```php
-host('example.org', 'deployer.org', ...)
-    ->setRemoteUser('anton');
+host('example.org', 'deployer.org', 'another.org')->setRemoteUser('anton');
 ```
 
-## Host ranges
+### Host Ranges
 
-If you have a lot of hosts following similar patterns, you can describe them
-like this rather than listing each hostname:
+Expand a range into many hosts:
 
 ```php
-host('www[01:50].example.org');
+host('www[01:50].example.org'); // www01.example.org … www50.example.org
+host('db[a:f].example.org');    // dba.example.org … dbf.example.org
 ```
 
-For numeric patterns, leading zeros can be included or removed, as desired.
-Ranges are inclusive.
+Numeric ranges keep leading zeros; alphabetic ranges work too.
 
-You can also define alphabetic ranges:
+### Localhost
+
+Run commands on the local machine with [localhost()](api.md#localhost):
 
 ```php
-host('db[a:f].example.org');
+localhost();      // alias and hostname are "localhost"
+localhost('ci');  // alias is "ci", hostname is "localhost"
 ```
 
-## Localhost
+[run()](api.md#run) then executes locally. [runLocally()](api.md#runlocally) does the same without needing a
+localhost host.
 
-The [localhost()](api.md#localhost) function defines a special local host.
-Deployer will not connect to this host, but will execute commands locally instead.
+### YAML Inventory
 
-```php
-localhost(); // Alias and hostname will be "localhost".
-localhost('ci'); // Alias is "ci", hostname is "localhost".
-```
-
-## YAML Inventory
-
-You can use the [import()](api.md#import) function to keep host definitions in a
-separate file. For example, _inventory.yaml_.
+Move host definitions to a separate file and pull them in with [import()](api.md#import):
 
 ```php title="deploy.php"
 import('inventory.yaml');
